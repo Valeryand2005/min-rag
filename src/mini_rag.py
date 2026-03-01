@@ -1,12 +1,3 @@
-"""
-My own implementation for Innopolis University Mini-RAG project (Stage 2 Baseline)
-Heavily modified and cleaned from srbhr/Local-RAG-with-Ollama.
-- Removed all LangChain, Reflex, UI
-- Added separate generation-only baseline from scratch
-- Chunk size exactly 256 tokens as in proposal
-- Clean script structure for fair comparison
-"""
-
 import json
 import pickle
 import shutil
@@ -23,7 +14,8 @@ from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 # --- Constants (proposal) ---
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 # Default: open model. For Gemma/Phi-3: run `huggingface-cli login` and set GENERATOR_MODEL.
-GENERATOR_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+# GENERATOR_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+GENERATOR_MODEL = "distilgpt2"
 TOP_K = 5
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CHUNKED_DOCS_PATH = DATA_DIR / "chunked_docs.json"
@@ -31,18 +23,26 @@ TEST_SET_PATH = DATA_DIR / "test_set.json"
 FAISS_INDEX_PATH = DATA_DIR / "faiss.index"
 CHUNK_META_PATH = DATA_DIR / "chunk_metadata.pkl"
 MINI_RAG_PREDICTIONS_PATH = DATA_DIR / "mini_rag_predictions.json"
-MAX_NEW_TOKENS = 150
+MAX_NEW_TOKENS = 100
+
+MAX_CONTEXT_LENGTH = 400
 
 
-def get_prompt_rag(context: str, question: str) -> str:
-    """RAG prompt: context + question."""
-    return (
-        "You are a helpful assistant. Use ONLY the following context to answer the question.\n"
-        f"Context: {context}\n"
-        f"Question: {question}\n"
-        "Answer:"
-    )
+# def get_prompt_rag(context: str, question: str) -> str:
+#     """RAG prompt: context + question."""
+#     return (
+#         "You are a helpful assistant. Use ONLY the following context to answer the question.\n"
+#         f"Context: {context}\n"
+#         f"Question: {question}\n"
+#         "Answer:"
+#     )
 
+def get_prompt_gpt2(context: str, question: str) -> str:
+    return f"Context: {context}\nQuestion: {question}\nAnswer:"
+
+def truncate_context(context: str, tokenizer, max_length: int = 400) -> str:
+    tokens = tokenizer.encode(context, truncation=True, max_length=max_length)
+    return tokenizer.decode(tokens, skip_special_tokens=True)
 
 def run_mini_rag() -> None:
     """Load index + test set, retrieve top-k, generate with context, save predictions."""
@@ -51,7 +51,6 @@ def run_mini_rag() -> None:
     if not TEST_SET_PATH.exists():
         raise FileNotFoundError(f"Run preprocess first. Missing {TEST_SET_PATH}")
 
-    # FAISS C++ on Windows can fail on paths with unicode; copy to temp then read
     try:
         index = faiss.read_index(FAISS_INDEX_PATH.resolve().as_posix())
     except RuntimeError:
@@ -77,13 +76,19 @@ def run_mini_rag() -> None:
         torch_dtype="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(GENERATOR_MODEL)
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        print("Set pad_token = eos_token for distilgpt2")
+
     pipe = pipeline(
         "text-generation",
         model=model,
         tokenizer=tokenizer,
         max_new_tokens=MAX_NEW_TOKENS,
         do_sample=False,
-        pad_token_id=tokenizer.eos_token_id,
+        # pad_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id,
     )
 
     results: List[Dict[str, Any]] = []
@@ -91,10 +96,16 @@ def run_mini_rag() -> None:
         question = item.get("question") or ""
         q_emb = embed_model.encode([question], normalize_embeddings=True)
         q_emb = np.array(q_emb).astype(np.float32)
+
         scores, indices = index.search(q_emb, min(TOP_K, index.ntotal))
         top_chunks = [chunks[i]["text"] for i in indices[0]]
+
+
         context = "\n\n".join(top_chunks)
-        prompt = get_prompt_rag(context, question)
+        context = truncate_context(context, tokenizer, MAX_CONTEXT_LENGTH)
+
+
+        prompt = get_prompt_gpt2(context, question)
         out = pipe(prompt, return_full_text=False)
         answer = (out[0]["generated_text"] if out else "").strip()
         results.append({
