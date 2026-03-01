@@ -2,14 +2,10 @@
 
 **Innopolis University · Mini-RAG: A Lightweight Retrieval-Augmented Generation System**
 
-Controlled experiment: pure Python, no LangChain/Reflex/Ollama UI. CPU-friendly.
-
----
-
 ## Project Structure
 
 ```
-mini-rag-baseline-stage2/
+mini-rag/
 ├── data/                    # Dataset and artifacts (created by scripts)
 │   ├── chunked_docs.json    # Chunked documents (256 tokens)
 │   ├── test_set.json        # Test questions + ground truth
@@ -35,7 +31,7 @@ mini-rag-baseline-stage2/
 
 ## How to Run
 
-Run from the project root `mini-rag-baseline-stage2/` (so that `src` and `data` are found).
+Run from the project root `mini-rag/`
 
 ### 0. Prepare enviroment 
 ```bash
@@ -53,7 +49,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Preprocess dataset (chunk 256 tokens, create test set)
+### 2. Preprocess dataset
 
 ```bash
 python -m src.preprocess
@@ -70,16 +66,16 @@ python -m src.embed_and_index
 ```
 
 - Embeds chunks with **sentence-transformers/all-MiniLM-L6-v2**
-- Builds **FAISS** (IndexFlatIP, normalized = cosine)
+- Builds **FAISS** 
 - Saves index and chunk metadata in `data/`
 
-### 4. Baseline (generation only, no retrieval)
+### 4. Baseline
 
 ```bash
 python -m src.baseline_generation_only
 ```
 
-- Loads **google/gemma-2b-it** (CPU)
+- Loads 
 - Prompt: `Question: {question}\nAnswer:`
 - Writes `data/baseline_predictions.json`
 
@@ -90,7 +86,7 @@ python -m src.mini_rag
 ```
 
 - Retrieves **top-5** chunks per question
-- Prompt: context + question (as in proposal)
+- Prompt: context + question 
 - Writes `data/mini_rag_predictions.json`
 
 ### 6. Evaluation
@@ -100,30 +96,18 @@ python -m src.evaluate
 ```
 
 - Computes **Exact Match (EM)** and **token-level F1**
+- Calculates semantic similarity using all-MiniLM-L6-v2 embeddings
 - Saves 5 qualitative examples to `data/evaluation_examples.json`
-- Prints metrics and example table for the report
-
----
-
-## Results
-
-*(Fill in after running evaluation.)*
-
-| System              | EM    | F1    |
-|---------------------|-------|--------|
-| Baseline (no retrieval) | —  | —  |
-| Mini-RAG (retrieval + gen) | —  | —  |
-
-Qualitative examples: see `data/evaluation_examples.json` and `reports/baseline_report_template.md`.
+- Prints metrics and table 
 
 ---
 
 ## Configuration
 
-- **Dataset:** neural-bridge/rag-dataset-12000 (context, question, answer)
+- **Dataset:** neural-bridge/rag-dataset-12000
 - **Chunk size:** 256 tokens
 - **Embedding:** sentence-transformers/all-MiniLM-L6-v2
 - **Vector store:** FAISS (faiss-cpu, IndexFlatIP)
 - **Top-k:** 5
-- **Generator (default):** TinyLlama/TinyLlama-1.1B-Chat-v1.0 (open, no HF login). For Gemma/Phi-3: run `huggingface-cli login`, accept the model license, then set `GENERATOR_MODEL` in `baseline_generation_only.py` and `mini_rag.py`.
+- **Generator (default):** distilgpt2 set `GENERATOR_MODEL` in `baseline_generation_only.py` and `mini_rag.py`.
 - **Default scale:** 2500 documents, 1000 test examples (tunable in `src/preprocess.py`)
