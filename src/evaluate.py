@@ -1,12 +1,3 @@
-"""
-My own implementation for Innopolis University Mini-RAG project (Stage 2 Baseline)
-Heavily modified and cleaned from srbhr/Local-RAG-with-Ollama.
-- Removed all LangChain, Reflex, UI
-- Added separate generation-only baseline from scratch
-- Chunk size exactly 256 tokens as in proposal
-- Clean script structure for fair comparison
-"""
-
 import json
 import re
 from pathlib import Path
@@ -21,11 +12,15 @@ REPORT_EXAMPLES_PATH = DATA_DIR / "evaluation_examples.json"
 
 def normalize_answer(s: str) -> str:
     """Lowercase, strip, remove punctuation, collapse whitespace."""
+    if s is None:
+        return ""
+    if not isinstance(s, str):
+        s = str(s)
+    
     s = s.lower().strip()
     s = re.sub(r"[^\w\s]", "", s)
     s = re.sub(r"\s+", " ", s)
     return s
-
 
 def exact_match(pred: str, gold: str) -> float:
     """Exact Match (EM): 1 if normalized pred == normalized gold else 0."""
