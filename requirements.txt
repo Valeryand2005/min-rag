@@ -7,3 +7,4 @@ tqdm
 numpy
 evaluate
 accelerate
+bert_score
