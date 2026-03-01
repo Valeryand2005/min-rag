@@ -6,3 +6,4 @@ datasets
 tqdm
 numpy
 evaluate
+accelerate
