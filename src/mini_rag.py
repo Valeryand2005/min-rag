@@ -11,9 +11,8 @@ from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 
-# --- Constants (proposal) ---
+
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-# Default: open model. For Gemma/Phi-3: run `huggingface-cli login` and set GENERATOR_MODEL.
 # GENERATOR_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 GENERATOR_MODEL = "distilgpt2"
 TOP_K = 5
