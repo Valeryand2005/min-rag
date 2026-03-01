@@ -1,118 +1,129 @@
-![Understanding RAG](assets/Understanding_RAG.jpg)
+# Mini-RAG: Stage 2 — Baseline Implementation
 
-# Local RAG Chat App with Google Gemma 3, LangChain, and Reflex
+**Innopolis University · Mini-RAG: A Lightweight Retrieval-Augmented Generation System**
 
-A Retrieval-Augmented Generation (RAG) chatbot application built with Reflex, LangChain, and Ollama's Gemma model. This application allows users to ask questions and receive answers enhanced with context retrieved from a dataset.
+Controlled experiment: pure Python, no LangChain/Reflex/Ollama UI. CPU-friendly.
 
-This project contains code samples for the blog post [here](https://www.apideck.com/blog/building-a-local-rag-chat-app-with-reflex-langchain-huggingface-and-ollama).
-
-## Blogs
-
-1. [Understanding RAG](https://www.apideck.com/blog/understanding-rag-retrieval-augmented-generation-essentials-for-ai-projects)
-2. [Building a Local RAG Chatbot with Ollama](https://www.apideck.com/blog/building-a-local-rag-chat-app-with-reflex-langchain-huggingface-and-ollama)
-
-![RAG Chat with Gemma](assets/screenshot1.png)
-
-## Features
-
-- 💬 Modern chat-like interface for asking questions
-- 🔍 Retrieval-Augmented Generation for more accurate answers
-- 🧠 Uses Gemma 3 4B-IT model via Ollama
-- 📚 Built with the neural-bridge/rag-dataset-12000 dataset
-- 🛠️ FAISS vector database for efficient similarity search
-- 🔄 Full integration with LangChain for RAG pipeline
-- 🌐 Built with Reflex for a reactive web interface
-
-## Prerequisites
-
-- Python 3.12+ 
-- [Ollama](https://ollama.com/) installed and running
-- The Gemma 3 4B model pulled in Ollama: `ollama pull gemma3:4b-it-qat`
-
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/srbhr/Local-RAG-with-Ollama.git
-   cd RAG_Blog
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Make sure Ollama is running and you've pulled the required model:
-   ```bash
-   ollama pull gemma3:4b-it-qat
-   ```
-
-## Usage
-
-1. Start the Reflex development server:
-   ```bash
-   reflex run
-   ```
-
-2. Open your browser and go to `http://localhost:3000`
-
-![RAG Chat with Gemma](assets/screenshot3.png)
-
-3. Start asking questions in the chat interface!
+---
 
 ## Project Structure
 
 ```
-RAG_Blog/
-├── assets/                    # Static assets 
-├── faiss_index_neural_bridge/ # FAISS vector database for the full dataset
-│   ├── index.faiss            # FAISS index file
-│   └── index.pkl              # Pickle file with metadata
-├── faiss_index_subset/        # FAISS vector database for a subset of data
-├── rag_gemma_reflex/          # Main application package
+mini-rag-baseline-stage2/
+├── data/                    # Dataset and artifacts (created by scripts)
+│   ├── chunked_docs.json    # Chunked documents (256 tokens)
+│   ├── test_set.json        # Test questions + ground truth
+│   ├── faiss.index          # FAISS index
+│   ├── chunk_metadata.pkl   # Chunk texts for retrieval
+│   ├── baseline_predictions.json
+│   ├── mini_rag_predictions.json
+│   └── evaluation_examples.json
+├── src/
 │   ├── __init__.py
-│   ├── rag_gemma_reflex.py    # UI components and styling
-│   ├── rag_logic.py           # Core RAG implementation
-│   └── state.py               # Application state management
-├── requirements.txt           # Project dependencies
-└── rxconfig.py                # Reflex configuration
+│   ├── preprocess.py              # Chunking (256 tokens)
+│   ├── embed_and_index.py        # all-MiniLM-L6-v2 + FAISS
+│   ├── baseline_generation_only.py # Baseline without retrieval
+│   ├── mini_rag.py                # Full Mini-RAG (retrieval + generation)
+│   └── evaluate.py                # EM, F1, qualitative examples
+├── reports/
+│   └── baseline_report_template.md
+├── requirements.txt
+└── README.md
 ```
 
-## How It Works
+---
 
-![RAG Chat with Gemma](assets/screenshot2.png)
+## How to Run
 
-This application implements a RAG (Retrieval-Augmented Generation) architecture:
+Run from the project root `mini-rag-baseline-stage2/` (so that `src` and `data` are found).
 
-1. **Embedding and Indexing**: Documents from the neural-bridge/rag-dataset-12000 dataset are embedded using HuggingFace's all-MiniLM-L6-v2 model and stored in a FAISS vector database.
+### 0. Prepare enviroment 
+```bash
+python3 -m venv .venv
+```
 
-2. **Retrieval**: When a user asks a question, the application converts the question into an embedding and finds the most similar documents in the FAISS index.
+```bash
+source .venv/bin/activate
+```
 
-3. **Generation**: The retrieved documents are sent to the Gemma 3 model (running via Ollama) along with the user's question to generate a contextualized response.
 
-4. **UI**: The Reflex framework provides a reactive web interface for the chat application.
+### 1. Install dependencies
 
-## Customization
+```bash
+pip install -r requirements.txt
+```
 
-You can customize the following aspects of the application:
+### 2. Preprocess dataset (chunk 256 tokens, create test set)
 
-- **LLM Model**: Change the `OLLAMA_MODEL` environment variable or modify the `DEFAULT_OLLAMA_MODEL` in `rag_logic.py`
-- **Dataset**: Modify the `DATASET_NAME` in `rag_logic.py`
-- **Embedding Model**: Change the `EMBEDDING_MODEL_NAME` in `rag_logic.py`
-- **UI Styling**: Modify the styles in `rag_gemma_reflex.py`
+```bash
+python -m src.preprocess
+```
 
-## Environment Variables
+- Downloads `neural-bridge/rag-dataset-12000`
+- Chunks contexts to **256 tokens** (tokenizer: all-MiniLM-L6-v2)
+- Saves chunked docs and test set into `data/` (default: 2500 docs, 1000 test examples)
 
-- `OLLAMA_MODEL`: Override the default Gemma model
-- `OLLAMA_HOST`: Specify a custom Ollama host (default: http://localhost:11434)
+### 3. Build embeddings and FAISS index
 
-## License
+```bash
+python -m src.embed_and_index
+```
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+- Embeds chunks with **sentence-transformers/all-MiniLM-L6-v2**
+- Builds **FAISS** (IndexFlatIP, normalized = cosine)
+- Saves index and chunk metadata in `data/`
 
-## Acknowledgements
+### 4. Baseline (generation only, no retrieval)
 
-- [Reflex](https://reflex.dev/) for the reactive web framework
-- [LangChain](https://www.langchain.com/) for the RAG pipeline components
-- [Ollama](https://ollama.com/) for local LLM hosting
-- [HuggingFace](https://huggingface.co/) for embeddings and dataset hosting
+```bash
+python -m src.baseline_generation_only
+```
+
+- Loads **google/gemma-2b-it** (CPU)
+- Prompt: `Question: {question}\nAnswer:`
+- Writes `data/baseline_predictions.json`
+
+### 5. Mini-RAG (retrieval + generation)
+
+```bash
+python -m src.mini_rag
+```
+
+- Retrieves **top-5** chunks per question
+- Prompt: context + question (as in proposal)
+- Writes `data/mini_rag_predictions.json`
+
+### 6. Evaluation
+
+```bash
+python -m src.evaluate
+```
+
+- Computes **Exact Match (EM)** and **token-level F1**
+- Saves 5 qualitative examples to `data/evaluation_examples.json`
+- Prints metrics and example table for the report
+
+---
+
+## Results
+
+*(Fill in after running evaluation.)*
+
+| System              | EM    | F1    |
+|---------------------|-------|--------|
+| Baseline (no retrieval) | —  | —  |
+| Mini-RAG (retrieval + gen) | —  | —  |
+
+Qualitative examples: see `data/evaluation_examples.json` and `reports/baseline_report_template.md`.
+
+---
+
+## Configuration
+
+- **Dataset:** neural-bridge/rag-dataset-12000 (context, question, answer)
+- **Chunk size:** 256 tokens
+- **Embedding:** sentence-transformers/all-MiniLM-L6-v2
+- **Vector store:** FAISS (faiss-cpu, IndexFlatIP)
+- **Top-k:** 5
+- **Generator (default):** TinyLlama/TinyLlama-1.1B-Chat-v1.0 (open, no HF login). For Gemma/Phi-3: run `huggingface-cli login`, accept the model license, then set `GENERATOR_MODEL` in `baseline_generation_only.py` and `mini_rag.py`.
+- **Default scale:** 2500 documents, 1000 test examples (tunable in `src/preprocess.py`)
