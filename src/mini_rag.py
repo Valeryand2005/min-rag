@@ -204,5 +204,5 @@ def run_mini_rag(
     print(f"saved {len(results)} mini-rag predictions to {out_path}")
 
 
-if name == "main":
+if __name__ == "__main__":
     run_mini_rag()
