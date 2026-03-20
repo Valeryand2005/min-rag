@@ -14,11 +14,12 @@ REPORT_EXAMPLES_PATH = DATA_DIR / "evaluation_examples.json"
 CHUNK_METADATA_PATH = DATA_DIR / "chunk_metadata.pkl"  
 NUMBER_EVALUATIONS = 5
 
+# simple model for similarity
 similarity_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 
 def normalize_answer(s: str) -> str:
-    """Lowercase, strip, remove punctuation, collapse whitespace."""
+    # make text simple: lowercase, remove punctuation, fix spaces
     if s is None:
         return ""
     if not isinstance(s, str):
@@ -29,74 +30,92 @@ def normalize_answer(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+
 def exact_match(pred: str, gold: str) -> float:
-    """Exact Match (EM): 1 if normalized pred == normalized gold else 0."""
+    # 1 if answers are exactly the same after normalization
     return 1.0 if normalize_answer(pred) == normalize_answer(gold) else 0.0
 
 
 def token_f1(pred: str, gold: str) -> Tuple[float, float, float]:
-    """Token-level F1: precision, recall, F1 between token sets."""
+    # compare answers as sets of words
     pred_tokens = set(normalize_answer(pred).split())
     gold_tokens = set(normalize_answer(gold).split())
+
     if not gold_tokens:
         return (1.0, 1.0, 1.0) if not pred_tokens else (0.0, 0.0, 0.0)
     if not pred_tokens:
         return (0.0, 0.0, 0.0)
+
     common = pred_tokens & gold_tokens
-    prec = len(common) / len(pred_tokens)
-    rec = len(common) / len(gold_tokens)
-    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
-    return (prec, rec, f1)
+    precision = len(common) / len(pred_tokens)
+    recall = len(common) / len(gold_tokens)
+
+    if precision + recall == 0:
+        f1 = 0.0
+    else:
+        f1 = 2 * precision * recall / (precision + recall)
+
+    return (precision, recall, f1)
 
 
 def semantic_similarity(pred: str, gold: str) -> float:
-    """Semantic similarity using sentence embeddings."""
+    # check if answers are similar in meaning
     if not pred or not gold:
         return 0.0
+
     emb_pred = similarity_model.encode(pred, convert_to_tensor=True)
     emb_gold = similarity_model.encode(gold, convert_to_tensor=True)
+
     return util.pytorch_cos_sim(emb_pred, emb_gold).item()
 
 
 def faithfulness_score(answer: str, context: str) -> float:
-    """Measure how faithful answer is to context using BERTScore."""
+    # check if answer matches the context
     if not answer or not context:
         return 0.0
+
     try:
         P, R, F1 = bert_score([answer], [context], lang="en", verbose=False)
         return F1.item()
     except:
+        # fallback if bert_score fails
         return semantic_similarity(answer, context)
 
 
 def retrieval_recall_at_k(retrieved_chunks: List[str], relevant_context: str, k: int = 5) -> float:
-    """Check if relevant context is in top-k retrieved chunks."""
+    # check if correct context is inside top-k chunks
     if not retrieved_chunks or not relevant_context:
         return 0.0
-    
 
     rel_emb = similarity_model.encode(relevant_context, convert_to_tensor=True)
-    
-    for i, chunk in enumerate(retrieved_chunks[:k]):
+
+    for chunk in retrieved_chunks[:k]:
         chunk_emb = similarity_model.encode(chunk, convert_to_tensor=True)
         sim = util.pytorch_cos_sim(rel_emb, chunk_emb).item()
-        if sim > 0.8: 
+
+        if sim > 0.8:  # simple threshold
             return 1.0
+
     return 0.0
 
 
 def run_enhanced_evaluate() -> None:
-    """Compute comprehensive metrics for RAG evaluation."""
+    # run all metrics and compare baseline vs rag
+    
+    # check files
     if not BASELINE_PREDICTIONS_PATH.exists():
-        raise FileNotFoundError(f"Run baseline_generation_only first. Missing {BASELINE_PREDICTIONS_PATH}")
+        raise FileNotFoundError(f"Run baseline first. Missing {BASELINE_PREDICTIONS_PATH}")
     if not MINI_RAG_PREDICTIONS_PATH.exists():
         raise FileNotFoundError(f"Run mini_rag first. Missing {MINI_RAG_PREDICTIONS_PATH}")
 
+    # load data
     with open(BASELINE_PREDICTIONS_PATH, "r", encoding="utf-8") as f:
         baseline: List[Dict[str, Any]] = json.load(f)
+
     with open(MINI_RAG_PREDICTIONS_PATH, "r", encoding="utf-8") as f:
         mini_rag: List[Dict[str, Any]] = json.load(f)
 
+    # how many examples to use
     if NUMBER_EVALUATIONS == 0 or NUMBER_EVALUATIONS is None:
         n = min(len(baseline), len(mini_rag))
     else:
@@ -104,12 +123,12 @@ def run_enhanced_evaluate() -> None:
 
     baseline = baseline[:n]
     mini_rag = mini_rag[:n]
-    
-    print(f"\n{'='*60}")
+
+    print("\n" + "=" * 60)
     print(f"Evaluating {n} examples")
-    print(f"{'='*60}\n")
+    print("=" * 60 + "\n")
 
-
+    # store all metrics
     metrics = {
         'exact_match': {'baseline': [], 'rag': []},
         'token_f1': {'baseline': [], 'rag': []},
@@ -118,20 +137,28 @@ def run_enhanced_evaluate() -> None:
         'retrieval_recall': [],
     }
 
+    # go through all examples
     for i in range(n):
-        # Basic metrics
         em_b = exact_match(baseline[i]["prediction"], baseline[i]["ground_truth"])
         em_r = exact_match(mini_rag[i]["prediction"], mini_rag[i]["ground_truth"])
-        
+
         f1_b = token_f1(baseline[i]["prediction"], baseline[i]["ground_truth"])[2]
         f1_r = token_f1(mini_rag[i]["prediction"], mini_rag[i]["ground_truth"])[2]
-        
+
         sim_b = semantic_similarity(baseline[i]["prediction"], baseline[i]["ground_truth"])
         sim_r = semantic_similarity(mini_rag[i]["prediction"], mini_rag[i]["ground_truth"])
-        
-        faith_b = faithfulness_score(baseline[i]["prediction"], baseline[i].get("context", ""))
-        faith_r = faithfulness_score(mini_rag[i]["prediction"], mini_rag[i].get("retrieved_context", ""))
-      
+
+        faith_b = faithfulness_score(
+            baseline[i]["prediction"], 
+            baseline[i].get("context", "")
+        )
+
+        faith_r = faithfulness_score(
+            mini_rag[i]["prediction"], 
+            mini_rag[i].get("retrieved_context", "")
+        )
+
+        # retrieval metric only for rag
         if "retrieved_chunks" in mini_rag[i]:
             recall = retrieval_recall_at_k(
                 mini_rag[i]["retrieved_chunks"], 
@@ -139,7 +166,7 @@ def run_enhanced_evaluate() -> None:
                 k=5
             )
             metrics['retrieval_recall'].append(recall)
-    
+
         metrics['exact_match']['baseline'].append(em_b)
         metrics['exact_match']['rag'].append(em_r)
         metrics['token_f1']['baseline'].append(f1_b)
@@ -149,6 +176,7 @@ def run_enhanced_evaluate() -> None:
         metrics['faithfulness']['baseline'].append(faith_b)
         metrics['faithfulness']['rag'].append(faith_r)
 
+    # average results
     results = {
         'exact_match': {
             'baseline': np.mean(metrics['exact_match']['baseline']),
@@ -169,20 +197,22 @@ def run_enhanced_evaluate() -> None:
         'retrieval_recall@5': np.mean(metrics['retrieval_recall']) if metrics['retrieval_recall'] else 0.0,
     }
 
-
     print("EVALUATION RESULTS")
-    
+
     print(f"\n{'Metric':<25} {'Baseline':<15} {'Mini-RAG':<15} {'Improvement':<15}")
-    
+
     for metric in ['exact_match', 'token_f1', 'semantic_similarity', 'faithfulness']:
         base = results[metric]['baseline']
         rag = results[metric]['rag']
-        imp = rag - base
-        print(f"{metric.replace('_', ' ').title():<25} {base:<15.4f} {rag:<15.4f} {imp:<+15.4f}")
-    
+        diff = rag - base
+
+        print(f"{metric.replace('_', ' ').title():<25} {base:<15.4f} {rag:<15.4f} {diff:<+15.4f}")
+
     print(f"\nRetrieval Recall@5: {results['retrieval_recall@5']:.4f}")
 
+    # save some examples
     results['examples'] = []
+
     for i in range(min(5, n)):
         results['examples'].append({
             'question': baseline[i]['question'][:100] + "...",
@@ -194,9 +224,10 @@ def run_enhanced_evaluate() -> None:
             'semantic_baseline': metrics['semantic_sim']['baseline'][i],
             'semantic_rag': metrics['semantic_sim']['rag'][i],
         })
-    
+
     with open(REPORT_EXAMPLES_PATH, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
+
 
 if __name__ == "__main__":
     run_enhanced_evaluate()
