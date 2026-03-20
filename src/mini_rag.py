@@ -14,7 +14,7 @@ from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 GENERATOR_MODEL = "distilgpt2"
 TOP_K = 5
-DATA_DIR = Path(file).resolve().parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CHUNKED_DOCS_PATH = DATA_DIR / "chunked_docs.json"
 TEST_SET_PATH = DATA_DIR / "test_set.json"
 FAISS_INDEX_PATH = DATA_DIR / "faiss.index"
