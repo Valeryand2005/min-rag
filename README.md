@@ -1,6 +1,4 @@
-# Mini-RAG: Stage 2 — Baseline Implementation
-
-**Innopolis University · Mini-RAG: A Lightweight Retrieval-Augmented Generation System**
+# Mini-RAG
 
 ## Project Structure
 
@@ -99,18 +97,6 @@ python -m src.evaluate
 - Calculates semantic similarity using all-MiniLM-L6-v2 embeddings
 - Saves 5 qualitative examples to `data/evaluation_examples.json`
 - Prints metrics and table 
-
----
-
-## Configuration
-
-- **Dataset:** neural-bridge/rag-dataset-12000
-- **Chunk size:** 256 tokens
-- **Embedding:** sentence-transformers/all-MiniLM-L6-v2
-- **Vector store:** FAISS (faiss-cpu, IndexFlatIP)
-- **Top-k:** 5
-- **Generator (default):** distilgpt2 set `GENERATOR_MODEL` in `baseline_generation_only.py` and `mini_rag.py`.
-- **Default scale:** 2500 documents, 1000 test examples (tunable in `src/preprocess.py`)
 
 ---
 
