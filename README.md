@@ -111,3 +111,24 @@ python -m src.evaluate
 - **Top-k:** 5
 - **Generator (default):** distilgpt2 set `GENERATOR_MODEL` in `baseline_generation_only.py` and `mini_rag.py`.
 - **Default scale:** 2500 documents, 1000 test examples (tunable in `src/preprocess.py`)
+
+---
+
+## Experiments
+
+We provide a parameter sweep over embeddings, chunk sizes, and generators. See **EXPERIMENTS.md** for details.
+
+Quick start:
+
+```bash
+# Quick run (baseline + chunk 128/512)
+python run_experiments.py --quick -n 5
+
+# Full experiment set
+python run_experiments.py -n 5
+
+# Skip heavy models
+python run_experiments.py --skip gen_gemma-2b -n 5
+```
+
+Results: `data/experiment_results.json` and `data/experiment_results.md`
