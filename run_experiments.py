@@ -141,6 +141,106 @@ def print_results_table(results: list) -> None:
 
 
 
+def collect_error_analysis(experiments: list, n_examples: int = 3) -> list:
+    # pick the same n_examples questions and show what each experiment answered
+
+    # first load questions from the first experiment that has predictions
+    questions = []
+    for config in experiments:
+        pred_path = config.exp_dir / "mini_rag_predictions.json"
+        if pred_path.exists():
+            with open(pred_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # take first n_examples questions as anchor
+            for item in data[:n_examples]:
+                questions.append(item["question"])
+            break
+
+    if not questions:
+        print("no predictions found, skipping error analysis")
+        return []
+    examples = []
+
+    for i, question in enumerate(questions):
+        entry = {
+            "question": question,
+            "ground_truth": "",
+            "answers": {},
+        }
+
+        for config in experiments:
+            pred_path = config.exp_dir / "mini_rag_predictions.json"
+            if pred_path.exists():
+                with open(pred_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if i < len(data):
+                    item = data[i]
+                   
+                   
+                    if not entry["ground_truth"]:
+                        entry["ground_truth"] = item.get("ground_truth", "")
+                    entry["answers"][config.name + " [rag]"] = item.get("prediction", "")
+
+            no_ret_path = config.exp_dir / "no_retrieval_predictions.json"
+            if no_ret_path.exists():
+                with open(no_ret_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if i < len(data):
+                    entry["answers"][config.name + " [no retrieval]"] = data[i].get("prediction", "")
+
+        examples.append(entry)
+
+    return examples
+
+
+def print_error_analysis(examples: list) -> None:
+    print("error analysis")
+
+    for i, ex in enumerate(examples):
+        print(f"\nexample {i + 1}")
+        print(f"  question:     {ex['question'][:120]}")
+        print(f"  ground truth: {ex['ground_truth'][:120]}")
+        print()
+
+        for exp_name, answer in ex["answers"].items():
+            short = answer[:120].replace("\n", " ")
+            print(f"  [{exp_name}]")
+            print(f"    {short}")
+        print("-" * 60)
+
+
+def save_error_analysis(examples: list, path: Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    json_path = path.with_suffix(".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(examples, f, indent=2, ensure_ascii=False)
+
+    md_path = path.with_suffix(".md")
+    lines = ["# Error Analysis", ""]
+
+    for i, ex in enumerate(examples):
+        lines.append(f"## example {i + 1}")
+        lines.append(f"")
+        lines.append(f"**question:** {ex['question']}")
+        lines.append(f"")
+        lines.append(f"**ground truth:** {ex['ground_truth']}")
+        lines.append(f"")
+
+        for exp_name, answer in ex["answers"].items():
+            short = answer[:200].replace("\n", " ")
+            lines.append(f"**{exp_name}:** {short}")
+            lines.append(f"")
+
+        lines.append("---")
+        lines.append("")
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"error analysis saved to {json_path} and {md_path}")
+
+
 def save_results_table(results: list, path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,3 +299,8 @@ if __name__ == "__main__":
     results = run_all_experiments(experiments=experiments, n_eval=n_eval, quick=False)
     print_results_table(results)
     save_results_table(results, args.output)
+
+    # show 2-3 concrete examples side by side across all experiments
+    error_examples = collect_error_analysis(experiments, n_examples=3)
+    print_error_analysis(error_examples)
+    save_error_analysis(error_examples, args.output.parent / "error_analysis")
