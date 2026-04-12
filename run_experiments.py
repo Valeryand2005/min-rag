@@ -12,14 +12,13 @@ from experiment_config import (
 from preprocess import run_preprocess
 from embed_and_index import run_embed_and_index
 from mini_rag import run_mini_rag
+from baseline_generation_only import run_no_retrieval
 from evaluate_experiment import evaluate_predictions
 
 
 
-def run_single_experiment(config: ExperimentConfig, n_eval: int = 5) -> dict:
-    # preprocess
-    # index + generate
-    # evaluate 
+def run_single_experiment(config: ExperimentConfig, n_eval: int = 5) -> list:
+    # returns two rows: [rag_metrics, no_retrieval_metrics]
     exp_dir = config.exp_dir
     exp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -28,6 +27,7 @@ def run_single_experiment(config: ExperimentConfig, n_eval: int = 5) -> dict:
     index_path = exp_dir / "faiss.index"
     meta_path = exp_dir / "chunk_metadata.pkl"
     pred_path = exp_dir / "mini_rag_predictions.json"
+    no_ret_path = exp_dir / "no_retrieval_predictions.json"
     metrics_path = exp_dir / "metrics.json"
 
     print(f"\n{'='*60}")
@@ -64,16 +64,32 @@ def run_single_experiment(config: ExperimentConfig, n_eval: int = 5) -> dict:
         max_examples=n_eval if n_eval > 0 and n_eval < 1000 else None,
     )
 
+    # no retrieval
+    run_no_retrieval(
+        generator_model=config.generator_model,
+        test_set_path=test_path,
+        output_path=no_ret_path,
+        max_examples=n_eval if n_eval > 0 and n_eval < 1000 else None,
+    )
+
     metrics = evaluate_predictions(pred_path, n_examples=n_eval)
     metrics["experiment"] = config.name
     metrics["embedding_model"] = config.embedding_model
     metrics["chunk_size"] = config.chunk_size
     metrics["generator_model"] = config.generator_model
+    metrics["mode"] = "rag"
+
+    metrics_no_ret = evaluate_predictions(no_ret_path, n_examples=n_eval)
+    metrics_no_ret["experiment"] = config.name + " (no retrieval)"
+    metrics_no_ret["embedding_model"] = "-"
+    metrics_no_ret["chunk_size"] = config.chunk_size
+    metrics_no_ret["generator_model"] = config.generator_model
+    metrics_no_ret["mode"] = "no_retrieval"
 
     with open(metrics_path, "w") as f:
-        json.dump(metrics, f, indent=2)
+        json.dump({"rag": metrics, "no_retrieval": metrics_no_ret}, f, indent=2)
 
-    return metrics
+    return [metrics, metrics_no_ret]
 
 
 
@@ -82,8 +98,9 @@ def run_all_experiments(experiments: list = None, n_eval: int = 5, quick: bool =
     results = []
     for config in experiments:
         try:
-            metrics = run_single_experiment(config, n_eval=n_eval)
-            results.append(metrics)
+            # returns [rag_row, no_retrieval_row]
+            rows = run_single_experiment(config, n_eval=n_eval)
+            results.extend(rows)
         except Exception as e:
             print(f"Experiment {config.name} FAILED: {e}")
             results.append({
@@ -108,11 +125,18 @@ def print_results_table(results: list) -> None:
         em = r.get("exact_match")
         f1 = r.get("token_f1")
         sim = r.get("semantic_similarity")
+        mode = r.get("mode", "rag")
 
-        print(f"- {r['experiment']}")
+        print(f"- {r['experiment']}  [{mode}]")
         print(f"  exact match: {em:.4f}" if em is not None else "  exact match: N/A")
         print(f"  f1:          {f1:.4f}" if f1 is not None else "  f1: N/A")
         print(f"  similarity:  {sim:.4f}" if sim is not None else "  similarity: N/A")
+
+        # retrieval metrics only present for rag rows
+        if "recall_at_5" in r:
+            print(f"  recall@5:    {r['recall_at_5']:.4f}")
+            print(f"  mrr:         {r['mrr']:.4f}")
+
         print()
 
 
@@ -132,20 +156,27 @@ def save_results_table(results: list, path: Path) -> None:
     lines = [
         "# Mini-RAG Experiment Results",
         "",
-        "| Experiment | Exact Match | Token F1 | Semantic Similarity |",
-        "|------------|-------------|----------|---------------------|",
+        "| Experiment | Mode | Exact Match | Token F1 | Semantic Similarity | Recall@5 | MRR |",
+        "|------------|------|-------------|----------|---------------------|----------|-----|",
     ]
     for r in results:
         if "error" in r:
-            lines.append(f"| {r['experiment']} | FAILED | - | - |")
+            lines.append(f"| {r['experiment']} | - | FAILED | - | - | - | - |")
         else:
             em = r.get("exact_match", 0)
             f1 = r.get("token_f1", 0)
             sim = r.get("semantic_similarity", 0)
+            recall = r.get("recall_at_5")
+            mrr = r.get("mrr")
+            mode = r.get("mode", "rag")
+
             em_s = f"{em:.4f}" if em is not None else "N/A"
             f1_s = f"{f1:.4f}" if f1 is not None else "N/A"
             sim_s = f"{sim:.4f}" if sim is not None else "N/A"
-            lines.append(f"| {r['experiment']} | {em_s} | {f1_s} | {sim_s} |")
+            recall_s = f"{recall:.4f}" if recall is not None else "-"
+            mrr_s = f"{mrr:.4f}" if mrr is not None else "-"
+
+            lines.append(f"| {r['experiment']} | {mode} | {em_s} | {f1_s} | {sim_s} | {recall_s} | {mrr_s} |")
     with open(md_path, "w") as f:
         f.write("\n".join(lines))
 

@@ -41,7 +41,7 @@ BATCH_SIZE = 100
 
 
 def get_prompt_baseline(question: str) -> str:
-    """Baseline: no retrieval. Prompt: Question: {question}\nAnswer:"""
+    # no context, just the question
     return f"Question: {question}\nAnswer:"
 
 
@@ -153,6 +153,67 @@ def run_baseline_generation_only() -> None:
         logger.info(f"  Question: {results[0]['question'][:100]}...")
         logger.info(f"  Prediction: {results[0]['prediction'][:100]}...")
         logger.info(f"  Ground truth: {results[0]['ground_truth'][:100]}...")
+
+
+def run_no_retrieval(
+    generator_model,
+    test_set_path,
+    output_path,
+    max_examples=None,
+):
+    # no retrieved context
+
+    if not test_set_path.exists():
+        raise FileNotFoundError(f"Run preprocess first. Missing {test_set_path}")
+
+    with open(test_set_path, "r", encoding="utf-8") as f:
+        test_set = json.load(f)
+
+    if max_examples is not None and max_examples > 0:
+        test_set = test_set[:max_examples]
+
+    print(f"loading generator '{generator_model}' for no-retrieval baseline...")
+
+    model = AutoModelForCausalLM.from_pretrained(
+        generator_model,
+        device_map="cpu",
+        low_cpu_mem_usage=True,
+        torch_dtype="auto",
+        trust_remote_code=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(generator_model, trust_remote_code=True)
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=MAX_NEW_TOKENS,
+        do_sample=False,
+        pad_token_id=tokenizer.pad_token_id,
+    )
+
+    results = []
+
+    for item in tqdm(test_set, desc="no-retrieval baseline"):
+        question = item.get("question") or ""
+        prompt = get_prompt_baseline(question)
+        out = pipe(prompt, return_full_text=False)
+        answer = (out[0]["generated_text"] if out else "").strip()
+
+        results.append({
+            "question": question,
+            "prediction": answer,
+            "ground_truth": item.get("answer", ""),
+            # no retrieved_chunks — retrieval metrics will be skipped
+        })
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=0)
+
+    print(f"saved {len(results)} no-retrieval predictions to {output_path}")
 
 
 if __name__ == "__main__":
