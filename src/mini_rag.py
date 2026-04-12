@@ -195,6 +195,8 @@ def run_mini_rag(
             "question": question,
             "prediction": answer,
             "ground_truth": item.get("answer", ""),
+            "retrieved_chunks": top_chunks,
+            "context": item.get("context", ""),
         })
 
     # save results
