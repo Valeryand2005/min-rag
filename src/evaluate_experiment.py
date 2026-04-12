@@ -46,6 +46,38 @@ def token_f1(pred, gold):
     return (prec, rec, f1)
 
 
+# recall@k
+# did the correct context appear in top-k retrieved chunks
+def recall_at_k(retrieved_chunks, gold_context, k=5):
+    if not retrieved_chunks or not gold_context:
+        return 0.0
+
+    gold_norm = normalize_answer(gold_context)
+
+    for chunk in retrieved_chunks[:k]:
+        chunk_norm = normalize_answer(chunk)
+        if gold_norm[:100] in chunk_norm or chunk_norm[:100] in gold_norm:
+            return 1.0
+
+    return 0.0
+
+
+# mean reciprocal rank for a single query
+# 1/rank if relevant chunk is found, else 0
+def reciprocal_rank(retrieved_chunks, gold_context):
+    if not retrieved_chunks or not gold_context:
+        return 0.0
+
+    gold_norm = normalize_answer(gold_context)
+
+    for rank, chunk in enumerate(retrieved_chunks, start=1):
+        chunk_norm = normalize_answer(chunk)
+        if gold_norm[:100] in chunk_norm or chunk_norm[:100] in gold_norm:
+            return 1.0 / rank
+
+    return 0.0
+
+
 # cosine similarity
 def semantic_similarity(pred, gold, model):
 
@@ -80,6 +112,8 @@ def evaluate_predictions(
     em_scores = []
     f1_scores = []
     sim_scores = []
+    recall_scores = []
+    rr_scores = []
 
     for item in data:
         pred = item.get("prediction", "")
@@ -92,12 +126,27 @@ def evaluate_predictions(
 
         sim_scores.append(semantic_similarity(pred, gold, sim_model))
 
-    return {
+        # retrieval metrics only available when retrieved_chunks is saved
+        chunks = item.get("retrieved_chunks", [])
+        context = item.get("context", "")
+
+        if chunks and context:
+            recall_scores.append(recall_at_k(chunks, context, k=5))
+            rr_scores.append(reciprocal_rank(chunks, context))
+
+    result = {
         "exact_match": float(np.mean(em_scores)),
         "token_f1": float(np.mean(f1_scores)),
         "semantic_similarity": float(np.mean(sim_scores)),
         "n_examples": n,
     }
+
+    # add retrieval metrics only if we have data for them
+    if recall_scores:
+        result["recall_at_5"] = float(np.mean(recall_scores))
+        result["mrr"] = float(np.mean(rr_scores))
+
+    return result
 
 
 def run_evaluate_experiment(
@@ -109,9 +158,14 @@ def run_evaluate_experiment(
     results = evaluate_predictions(predictions_path, n_examples=n_examples)
 
     print(f"\t results ({results['n_examples']} examples) ---")
-    print(f"exact match:  {results['exact_match']:.4f}")
-    print(f"f1 score:  {results['token_f1']:.4f}")
-    print(f"semantic similarity: {results['semantic_similarity']:.4f}")
+    print(f"exact match:        {results['exact_match']:.4f}")
+    print(f"f1 score:           {results['token_f1']:.4f}")
+    print(f"semantic similarity:{results['semantic_similarity']:.4f}")
+
+    # retrieval metrics print when available
+    if "recall_at_5" in results:
+        print(f"recall@5:           {results['recall_at_5']:.4f}")
+        print(f"mrr:                {results['mrr']:.4f}")
 
     if output_json:
         with open(output_json, "w") as f:
