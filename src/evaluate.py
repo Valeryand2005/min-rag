@@ -215,10 +215,10 @@ def run_enhanced_evaluate() -> None:
 
     for i in range(min(5, n)):
         results['examples'].append({
-            'question': baseline[i]['question'][:100] + "...",
-            'ground_truth': baseline[i]['ground_truth'][:100] + "...",
-            'baseline': baseline[i]['prediction'][:100] + "...",
-            'rag': mini_rag[i]['prediction'][:100] + "...",
+            'question': baseline[i]['question'],
+            'ground_truth': baseline[i]['ground_truth'],
+            'baseline': baseline[i]['prediction'],
+            'rag': mini_rag[i]['prediction'],
             'f1_baseline': metrics['token_f1']['baseline'][i],
             'f1_rag': metrics['token_f1']['rag'][i],
             'semantic_baseline': metrics['semantic_sim']['baseline'][i],
