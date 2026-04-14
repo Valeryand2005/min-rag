@@ -7,8 +7,9 @@ from tqdm import tqdm
 
 DATASET_NAME = "neural-bridge/rag-dataset-12000"
 CHUNK_SIZE_TOKENS = 256
-MAX_DOCUMENTS = 2500   # keep dataset small for faster indexing
-MAX_TEST_EXAMPLES = 1000
+CHUNK_OVERLAP_TOKENS = 64  # overlap between consecutive chunks to avoid losing context at boundaries
+MAX_DOCUMENTS = 2500   # documents to index
+MAX_TEST_EXAMPLES = 1000  # test QA pairs drawn from the SAME documents that are indexed
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CHUNKED_DOCS_PATH = DATA_DIR / "chunked_docs.json"
@@ -20,18 +21,20 @@ def get_paths(data_dir):
     return data_dir / "chunked_docs.json", data_dir / "test_set.json"
 
 
-def chunk_text_by_tokens(text, tokenizer, max_tokens):
-    # split text into token-based chunks
+def chunk_text_by_tokens(text, tokenizer, max_tokens, overlap=None):
     if not text or not text.strip():
         return []
 
+    if overlap is None:
+        overlap = CHUNK_OVERLAP_TOKENS
+
     tokens = tokenizer.encode(text, add_special_tokens=False)
 
-    # if text is small enough, keep it as one chunk
     if len(tokens) <= max_tokens:
         return [text] if text.strip() else []
 
     chunks = []
+    step = max(1, max_tokens - overlap)
     start = 0
 
     while start < len(tokens):
@@ -43,13 +46,17 @@ def chunk_text_by_tokens(text, tokenizer, max_tokens):
         if chunk_text.strip():
             chunks.append(chunk_text.strip())
 
-        start = end
+        if end == len(tokens):
+            break
+
+        start += step
 
     return chunks
 
 
 def run_preprocess(
     chunk_size=None,
+    chunk_overlap=None,
     tokenizer_model=None,
     data_dir=None,
     chunked_docs_path=None,
@@ -57,6 +64,7 @@ def run_preprocess(
 ):
     # set defaults
     chunk_size = chunk_size or CHUNK_SIZE_TOKENS
+    chunk_overlap = chunk_overlap if chunk_overlap is not None else CHUNK_OVERLAP_TOKENS
     tokenizer_model = tokenizer_model or "sentence-transformers/all-MiniLM-L6-v2"
     data_dir = data_dir or DATA_DIR
     chunked_path = chunked_docs_path or (data_dir / "chunked_docs.json")
@@ -70,16 +78,13 @@ def run_preprocess(
 
     total_rows = len(dataset)
 
-    # split dataset into train/test
+    # Use the same pool of documents for both indexing and test questions.
+    # Previously the test set was taken from documents AFTER the indexed ones,
+    # meaning the retriever could never find the right context (recall@5 = 0).
+    # Now: index first MAX_DOCUMENTS docs, and build test QA pairs from those
+    # same docs (capped at MAX_TEST_EXAMPLES).
     n_docs = min(MAX_DOCUMENTS, total_rows)
-    n_test = min(MAX_TEST_EXAMPLES, total_rows - n_docs)
-
-    if n_test <= 0:
-        n_docs = max(1, total_rows - MAX_TEST_EXAMPLES)
-        n_test = total_rows - n_docs
-
-    train_data = dataset.select(range(n_docs))
-    test_data = dataset.select(range(n_docs, n_docs + n_test))
+    docs_data = dataset.select(range(n_docs))
 
     # tokenizer for chunking
     from transformers import AutoTokenizer
@@ -88,16 +93,19 @@ def run_preprocess(
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
 
     all_chunks = []
+    test_list = []
     doc_id = 0
 
-    # build chunks
-    for row in tqdm(train_data, desc="chunking"):
+    # build chunks and test set from the same documents
+    for row in tqdm(docs_data, desc="chunking"):
         context = row.get("context") or ""
+        question = row.get("question", "")
+        answer = row.get("answer", "")
 
         if not context.strip():
             continue
 
-        chunks = chunk_text_by_tokens(context, tokenizer, chunk_size)
+        chunks = chunk_text_by_tokens(context, tokenizer, chunk_size, overlap=chunk_overlap)
 
         for i, chunk in enumerate(chunks):
             all_chunks.append({
@@ -106,26 +114,25 @@ def run_preprocess(
                 "doc_index": doc_id,
             })
 
+        # only keep rows that have a question and answer for the test set
+        if question.strip() and answer.strip() and len(test_list) < MAX_TEST_EXAMPLES:
+            test_list.append({
+                "question": question,
+                "answer": answer,
+                "context": context,
+            })
+
         doc_id += 1
 
     # save chunks
     with open(chunked_path, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, ensure_ascii=False, indent=0)
 
-    # build test set
-    test_list = [
-        {
-            "question": row.get("question", ""),
-            "answer": row.get("answer", ""),
-            "context": row.get("context", ""),
-        }
-        for row in test_data
-    ]
-
     # save test set
     with open(test_path, "w", encoding="utf-8") as f:
         json.dump(test_list, f, ensure_ascii=False, indent=0)
 
+    print(f"chunk_size={chunk_size}, overlap={chunk_overlap}")
     print(f"saved {len(all_chunks)} chunks to {chunked_path}")
     print(f"saved {len(test_list)} test examples to {test_path}")
 

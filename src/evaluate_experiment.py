@@ -46,8 +46,21 @@ def token_f1(pred, gold):
     return (prec, rec, f1)
 
 
+# token overlap between chunk and gold context
+# a chunk is "relevant" if it shares enough tokens with the gold context
+def _chunk_is_relevant(chunk_norm, gold_norm, threshold=0.3):
+    chunk_tokens = set(chunk_norm.split())
+    gold_tokens = set(gold_norm.split())
+    if not chunk_tokens or not gold_tokens:
+        return False
+    overlap = len(chunk_tokens & gold_tokens)
+    # precision: what fraction of chunk tokens are in gold
+    precision = overlap / len(chunk_tokens)
+    return precision >= threshold
+
+
 # recall@k
-# did the correct context appear in top-k retrieved chunks
+# did any of the top-k retrieved chunks overlap significantly with the gold context
 def recall_at_k(retrieved_chunks, gold_context, k=5):
     if not retrieved_chunks or not gold_context:
         return 0.0
@@ -56,7 +69,7 @@ def recall_at_k(retrieved_chunks, gold_context, k=5):
 
     for chunk in retrieved_chunks[:k]:
         chunk_norm = normalize_answer(chunk)
-        if gold_norm[:100] in chunk_norm or chunk_norm[:100] in gold_norm:
+        if _chunk_is_relevant(chunk_norm, gold_norm):
             return 1.0
 
     return 0.0
@@ -72,7 +85,7 @@ def reciprocal_rank(retrieved_chunks, gold_context):
 
     for rank, chunk in enumerate(retrieved_chunks, start=1):
         chunk_norm = normalize_answer(chunk)
-        if gold_norm[:100] in chunk_norm or chunk_norm[:100] in gold_norm:
+        if _chunk_is_relevant(chunk_norm, gold_norm):
             return 1.0 / rank
 
     return 0.0
