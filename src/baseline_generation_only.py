@@ -36,13 +36,22 @@ GENERATOR_MODEL = "distilgpt2"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 TEST_SET_PATH = DATA_DIR / "test_set.json"
 BASELINE_PREDICTIONS_PATH = DATA_DIR / "baseline_predictions.json"
-MAX_NEW_TOKENS = 100
+MAX_NEW_TOKENS = 192
+REPETITION_PENALTY = 1.18
 BATCH_SIZE = 100
 
-
-def get_prompt_baseline(question: str) -> str:
-    # no context, just the question
-    return f"Question: {question}\nAnswer:"
+try:
+    from generation_utils import (
+        extract_chat_answer,
+        get_prompt_no_retrieval,
+        postprocess_generated_answer,
+    )
+except ImportError:
+    from .generation_utils import (
+        extract_chat_answer,
+        get_prompt_no_retrieval,
+        postprocess_generated_answer,
+    )
 
 
 def setup_hf_token():
@@ -109,6 +118,7 @@ def run_baseline_generation_only() -> None:
         max_new_tokens=MAX_NEW_TOKENS,
         batch_size=BATCH_SIZE,
         do_sample=False,
+        repetition_penalty=REPETITION_PENALTY,
         pad_token_id=tokenizer.eos_token_id,
     )
 
@@ -118,11 +128,12 @@ def run_baseline_generation_only() -> None:
     
     for idx, item in enumerate(tqdm(test_set, desc="Baseline generation")):
         question = item.get("question") or ""
-        prompt = get_prompt_baseline(question)
+        prompt = get_prompt_no_retrieval(question, GENERATOR_MODEL, use_chat_format=False)
         
         try:
             out = pipe(prompt, return_full_text=False)
             answer = (out[0]["generated_text"] if out else "").strip()
+            answer = postprocess_generated_answer(answer)
         except Exception as e:
             logger.error(f"Error generating answer for item {idx}: {e}")
             answer = ""
@@ -160,9 +171,8 @@ def run_no_retrieval(
     test_set_path,
     output_path,
     max_examples=None,
+    use_chat_format=False,
 ):
-    # no retrieved context
-
     if not test_set_path.exists():
         raise FileNotFoundError(f"Run preprocess first. Missing {test_set_path}")
 
@@ -192,6 +202,7 @@ def run_no_retrieval(
         tokenizer=tokenizer,
         max_new_tokens=MAX_NEW_TOKENS,
         do_sample=False,
+        repetition_penalty=REPETITION_PENALTY,
         pad_token_id=tokenizer.pad_token_id,
     )
 
@@ -199,9 +210,12 @@ def run_no_retrieval(
 
     for item in tqdm(test_set, desc="no-retrieval baseline"):
         question = item.get("question") or ""
-        prompt = get_prompt_baseline(question)
+        prompt = get_prompt_no_retrieval(question, generator_model, use_chat_format)
         out = pipe(prompt, return_full_text=False)
         answer = (out[0]["generated_text"] if out else "").strip()
+        if use_chat_format:
+            answer = extract_chat_answer(answer, generator_model)
+        answer = postprocess_generated_answer(answer)
 
         results.append({
             "question": question,

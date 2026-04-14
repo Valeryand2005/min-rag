@@ -70,6 +70,7 @@ def run_single_experiment(config: ExperimentConfig, n_eval: int = 5) -> list:
         test_set_path=test_path,
         output_path=no_ret_path,
         max_examples=n_eval if n_eval > 0 and n_eval < 1000 else None,
+        use_chat_format=config.use_chat_format,
     )
 
     metrics = evaluate_predictions(pred_path, n_examples=n_eval)
